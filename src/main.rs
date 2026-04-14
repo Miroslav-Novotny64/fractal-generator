@@ -3,10 +3,16 @@ use nannou::prelude::*;
 use rand::Rng;
 
 fn main() {
-    nannou::app(model).update(update).run();
+    nannou::app(model).update(update).event(event).run();
 }
 
-struct Model {}
+struct Model {
+    scale: f32,
+    points: Vec<Point2>,
+    offset: Vec2, 
+    x: f32,
+    y: f32,
+}
 
 fn model(app: &App) -> Model {
     app.new_window()
@@ -14,29 +20,28 @@ fn model(app: &App) -> Model {
         .fullscreen()
         .build()
         .unwrap();
-    Model {}
+    Model { 
+        scale: 500.0, 
+        points: Vec::new(),
+        offset: vec2(0.0, -1000.0), 
+        x: 0.0,
+        y: 0.0,
+    }
 }
 
-fn update(_app: &App, _model: &mut Model, _update: Update) {}
-
-fn view(app: &App, _model: &Model, frame: Frame) {
-    let draw = app.draw();
-    let max_iterations = 500000;
-    let scale = 500.0;
+fn update(app: &App, model: &mut Model, _update: Update) {
+    let iterations_per_frame = 500000;
+    let scale = model.scale;
+    let offset = model.offset;
     let mut rng = rand::thread_rng();
     let win = app.window_rect();
 
-    let offset_x = 0.0;
-    let offset_y = -500.0;
-
-    let mut x = 0.0;
-    let mut y = 0.0;
+    let mut x = model.x;
+    let mut y = model.y;
     let mut xn;
     let mut yn;
     
-    let mut valid_points: Vec<Point2> = Vec::with_capacity(max_iterations);
-
-    for _ in 0..max_iterations {
+    for _ in 0..iterations_per_frame {
         let r: f32 = rng.gen_range(0.0..1.0);
         if r < 0.01 {
             xn = 0.0;
@@ -51,19 +56,72 @@ fn view(app: &App, _model: &Model, frame: Frame) {
             xn = -0.15 * x + 0.28 * y;
             yn = 0.26 * x + 0.24 * y + 0.44;
         }
-        let px = (xn * scale) + offset_x;
-        let py = (yn * scale + win.bottom()) + offset_y;
+        let px = (xn * scale) + offset.x;
+        let py = (yn * scale) + offset.y;
 
         if px > win.left() && px < win.right() && py > win.bottom() && py < win.top() {
-            valid_points.push(pt2(px, py));
+            model.points.push(pt2(px, py));
         }
 
         x = xn;
         y = yn;
     }
 
-    for point in valid_points {
-        draw.ellipse().xy(point).radius(0.1).color(GREEN);
+    model.x = x;
+    model.y = y;
+}
+
+fn event(app: &App, model: &mut Model, event: Event) {
+    if let Event::WindowEvent { simple: Some(event), .. } = event {
+        match event {
+            KeyPressed(key) => {
+                match key {
+                    Key::Equals | Key::Plus | Key::NumpadAdd => {
+                        zoom(app, model, 1.1);
+                        model.points.clear();
+                        model.x = 0.0;
+                        model.y = 0.0;
+                    }
+                    Key::Minus | Key::NumpadSubtract => {
+                        zoom(app, model, 0.9);
+                        model.points.clear();
+                        model.x = 0.0;
+                        model.y = 0.0;
+                    }
+                    _ => (),
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+fn zoom(app: &App, model: &mut Model, factor: f32) {
+    let win = app.window_rect();
+    let center = vec2(win.x(), win.y());
+
+    // Chceme, aby světový bod pod "center" zůstal po zoomu pod "center".
+    // old: s = w * scale + offset
+    // new: s = w * scale2 + offset2
+    // pro s=center => offset2 = center - (center - offset) * (scale2/scale)
+    let old_scale = model.scale;
+    let new_scale = old_scale * factor;
+    let ratio = new_scale / old_scale;
+
+    model.offset = center - (center - model.offset) * ratio;
+    model.scale = new_scale;
+
+    model.points.clear();
+    model.x = 0.0;
+    model.y = 0.0;
+}
+
+fn view(app: &App, model: &Model, frame: Frame) {
+    let draw = app.draw();
+    draw.background().color(BLACK);
+
+    for point in model.points.iter() {
+        draw.ellipse().xy(*point).radius(0.1).color(GREEN);
     }
 
     draw.to_frame(app, &frame).unwrap();
